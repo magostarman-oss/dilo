@@ -4,6 +4,7 @@ import { useDilo } from "./useDilo";
 import { Composer } from "./Composer";
 import { Understood } from "./Understood";
 import { Agenda } from "./Agenda";
+import { CalendarStatus } from "./CalendarStatus";
 import { CloseIcon } from "./icons";
 
 export function DiloApp() {
@@ -30,6 +31,7 @@ export function DiloApp() {
       )}
 
       <Understood dilo={dilo} />
+      <CalendarStatus dilo={dilo} />
       <Agenda dilo={dilo} />
 
       <footer className="payoff">Tu dillo. DILO ci pensa.</footer>

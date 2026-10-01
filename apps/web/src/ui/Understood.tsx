@@ -51,7 +51,7 @@ export function Understood({ dilo }: { dilo: Dilo }) {
             <span className="type-chip">{typeLabel(item)}</span>
             <p className="item-title">{item.title}</p>
             {itemMeta(item, dilo.now) && <p className="item-meta">{itemMeta(item, dilo.now)}</p>}
-            {item.clarification ? <Clarify item={item} dilo={dilo} /> : <CalendarLink item={item} />}
+            {item.clarification ? <Clarify item={item} dilo={dilo} /> : <CalendarLink item={item} synced={dilo.entries.some((e) => e.item.id === item.id && e.calendar)} />}
           </li>
         ))}
       </ol>

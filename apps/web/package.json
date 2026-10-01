@@ -12,6 +12,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@dilo/actions": "workspace:*",
     "@dilo/client": "workspace:*",
     "@dilo/core": "workspace:*",
     "@dilo/memory": "workspace:*",

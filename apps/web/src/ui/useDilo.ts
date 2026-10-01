@@ -4,6 +4,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { DiloApiError, DiloAssistant, HttpDiloApi, type Heard } from "@dilo/client";
 import { todayIso, type DiloItem } from "@dilo/core";
 import { KeyValueItemStore, MemoryStorage, type KeyValueStorage, type MemoryEntry } from "@dilo/memory";
+import { CalendarSyncedStore, GoogleCalendarApi, type SyncResult } from "@dilo/actions";
+import { GOOGLE_CLIENT_ID, googleAuth } from "./googleAuth";
 
 export type Phase = "idle" | "thinking";
 
@@ -39,12 +41,55 @@ export function useDilo() {
   const [lastHeard, setLastHeard] = useState<LastHeard | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [now, setNow] = useState(() => new Date());
+  const [calendar, setCalendar] = useState({ wanted: false, connected: false, waiting: 0, busy: false });
 
   const { store, assistant, timezone } = useMemo(() => {
     if (typeof window === "undefined") return { store: null, assistant: null, timezone: "Europe/Rome" };
     const timezone = browserTimezone();
-    const store = new KeyValueItemStore(browserStorage());
+    const local = new KeyValueItemStore(browserStorage());
+    // DILO AGISCE: with the user's permission, what DILO remembers also goes to Google Calendar.
+    const api = new GoogleCalendarApi(
+      () => googleAuth.token(),
+      undefined,
+      () => {
+        googleAuth.expire();
+        setCalendar((c) => ({ ...c, connected: false }));
+      },
+    );
+    const onResult = (r: SyncResult) =>
+      setCalendar((c) => ({ ...c, waiting: r.waiting, connected: googleAuth.token() !== null }));
+    const store = GOOGLE_CLIENT_ID
+      ? new CalendarSyncedStore(local, api, () => todayIso(new Date(), timezone), onResult)
+      : local;
     return { store, assistant: new DiloAssistant(new HttpDiloApi(), store, timezone), timezone };
+  }, []);
+
+  const syncCalendar = useCallback(() => {
+    if (store instanceof CalendarSyncedStore) void store.sync();
+  }, [store]);
+
+  useEffect(() => {
+    if (!GOOGLE_CLIENT_ID) return;
+    setCalendar((c) => ({ ...c, wanted: googleAuth.wanted, connected: googleAuth.token() !== null }));
+    syncCalendar();
+  }, [syncCalendar, now]);
+
+  const connectCalendar = useCallback(async () => {
+    setCalendar((c) => ({ ...c, busy: true }));
+    try {
+      await googleAuth.connect();
+      setCalendar((c) => ({ ...c, wanted: true, connected: true }));
+      syncCalendar();
+    } catch {
+      setError("Non sono riuscito a collegare Google Calendar. Riprova.");
+    } finally {
+      setCalendar((c) => ({ ...c, busy: false }));
+    }
+  }, [syncCalendar]);
+
+  const disconnectCalendar = useCallback(() => {
+    googleAuth.disconnect();
+    setCalendar((c) => ({ ...c, wanted: false, connected: false }));
   }, []);
 
   useEffect(() => {
@@ -137,6 +182,7 @@ export function useDilo() {
     now,
     timezone,
     today: todayIso(now, timezone),
+    calendar: { available: GOOGLE_CLIENT_ID !== "", ...calendar, connect: connectCalendar, disconnect: disconnectCalendar },
     say,
     answer,
     undoLast,

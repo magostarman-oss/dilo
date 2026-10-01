@@ -247,7 +247,7 @@ function Row({
         </p>
       </div>
       {clock && <span className="row-time">{clock}</span>}
-      <CalendarLink item={item} compact />
+      <CalendarLink item={item} synced={!!stored?.calendar} compact />
       <RemoveButton item={item} dilo={dilo} />
     </li>
   );

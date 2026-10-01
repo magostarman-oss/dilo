@@ -7,7 +7,7 @@ loadEnvConfig(path.resolve(process.cwd(), "../.."));
 
 const config: NextConfig = {
   // The shared packages are TypeScript sources, compiled by Next.
-  transpilePackages: ["@dilo/core", "@dilo/memory", "@dilo/client", "@dilo/nlu"],
+  transpilePackages: ["@dilo/core", "@dilo/memory", "@dilo/client", "@dilo/nlu", "@dilo/actions"],
   // The Anthropic SDK only ever runs on the server.
   serverExternalPackages: ["@anthropic-ai/sdk"],
 };
