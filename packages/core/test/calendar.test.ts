@@ -49,3 +49,20 @@ describe("Google Calendar", () => {
     expect(googleCalendarUrl(item({ status: "needs_clarification" }))).toBeNull();
   });
 });
+
+describe("Google Calendar API event", () => {
+  it("writes timed events in the user's zone and reminders as notifications", async () => {
+    const { toGoogleEvent } = await import("../src/index");
+    const ev = toGoogleEvent(item({ type: "reminder", title: "Chiamare Marco", time: "10:00", location: null }))!;
+    expect(ev.start).toEqual({ dateTime: "2026-10-03T10:00:00+02:00", timeZone: "Europe/Rome" });
+    expect(ev.end).toEqual({ dateTime: "2026-10-03T10:15:00+02:00", timeZone: "Europe/Rome" });
+    expect(ev.reminders).toEqual({ useDefault: false, overrides: [{ method: "popup", minutes: 0 }] });
+    expect(ev.extendedProperties.private.diloItemId).toBe("x");
+    expect(ev).not.toHaveProperty("location");
+
+    const allDay = toGoogleEvent(item({ time: null, alertMinutesBefore: null }))!;
+    expect(allDay.start).toEqual({ date: "2026-10-03" });
+    expect(allDay.end).toEqual({ date: "2026-10-04" });
+    expect(allDay.reminders).toEqual({ useDefault: true });
+  });
+});

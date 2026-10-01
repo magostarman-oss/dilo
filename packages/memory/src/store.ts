@@ -11,6 +11,14 @@ export interface MemoryEntry {
   completedAt: string | null;
   /** Days a recurring item (routine) was marked done. */
   completedDates: IsoDate[];
+  /** The copy of this item in the user's external calendar, once written there. */
+  calendar?: CalendarLink | null;
+}
+
+export interface CalendarLink {
+  provider: "google";
+  eventId: string;
+  syncedAt: string;
 }
 
 /**
@@ -24,6 +32,8 @@ export interface ItemStore {
   remove(ids: string[]): Promise<void>;
   /** Marks an item done or not; `date` is the day for recurring items. */
   setDone(id: string, done: boolean, date: IsoDate): Promise<void>;
+  /** Records (or clears) where the item lives in the user's calendar. */
+  setCalendar(id: string, link: CalendarLink | null): Promise<void>;
   /** Called after every change. Returns an unsubscribe function. */
   subscribe(listener: () => void): () => void;
 }
@@ -89,6 +99,14 @@ export class KeyValueItemStore implements ItemStore {
     } else {
       entry.completedAt = done ? this.now().toISOString() : null;
     }
+    await this.write(entries);
+  }
+
+  async setCalendar(id: string, link: CalendarLink | null): Promise<void> {
+    const entries = await this.load();
+    const entry = entries.find((e) => e.item.id === id);
+    if (!entry) return;
+    entry.calendar = link;
     await this.write(entries);
   }
 

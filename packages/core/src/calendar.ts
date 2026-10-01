@@ -96,3 +96,36 @@ export function googleCalendarUrl(item: DiloItem): string | null {
   if (e.recurrence) params.set("recur", e.recurrence);
   return `https://calendar.google.com/calendar/render?${params.toString()}`;
 }
+
+/** Body for the Google Calendar API (events.insert). */
+export interface GoogleEventBody {
+  summary: string;
+  description: string;
+  location?: string;
+  start: { date: string } | { dateTime: string; timeZone: string };
+  end: { date: string } | { dateTime: string; timeZone: string };
+  recurrence?: string[];
+  reminders: { useDefault: boolean; overrides?: { method: "popup"; minutes: number }[] };
+  extendedProperties: { private: { diloItemId: string } };
+}
+
+/** The event DILO writes to the user's Google Calendar for an item, or null if it has no day. */
+export function toGoogleEvent(item: DiloItem): GoogleEventBody | null {
+  const e = toCalendarEntry(item);
+  if (!e) return null;
+  const tz = item.timezone || DEFAULT_TIMEZONE;
+  const at = (d: DateTime) =>
+    e.allDay ? { date: d.toISODate()! } : { dateTime: d.setZone(tz).toISO({ suppressMilliseconds: true })!, timeZone: tz };
+  // "Ricordamelo" means a notification at that moment; an explicit "avvisami X minuti prima" wins.
+  const minutes = item.alertMinutesBefore ?? (item.type === "reminder" && !e.allDay ? 0 : null);
+  return {
+    summary: e.title,
+    description: e.details,
+    ...(e.location ? { location: e.location } : {}),
+    start: at(e.start),
+    end: at(e.end),
+    ...(e.recurrence ? { recurrence: [e.recurrence] } : {}),
+    reminders: minutes === null ? { useDefault: true } : { useDefault: false, overrides: [{ method: "popup", minutes }] },
+    extendedProperties: { private: { diloItemId: item.id } },
+  };
+}
