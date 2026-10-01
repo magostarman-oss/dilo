@@ -3,6 +3,7 @@
 import type { Dilo } from "./useDilo";
 import { Clarify } from "./Clarify";
 import { CloseIcon } from "./icons";
+import { CalendarLink } from "./CalendarLink";
 import { itemMeta, typeLabel } from "./display";
 
 /** What DILO understood from the last message, already remembered. */
@@ -50,7 +51,7 @@ export function Understood({ dilo }: { dilo: Dilo }) {
             <span className="type-chip">{typeLabel(item)}</span>
             <p className="item-title">{item.title}</p>
             {itemMeta(item, dilo.now) && <p className="item-meta">{itemMeta(item, dilo.now)}</p>}
-            {item.clarification && <Clarify item={item} dilo={dilo} />}
+            {item.clarification ? <Clarify item={item} dilo={dilo} /> : <CalendarLink item={item} />}
           </li>
         ))}
       </ol>

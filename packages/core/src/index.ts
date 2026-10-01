@@ -6,3 +6,4 @@ export * from "./recurrence";
 export * from "./agenda";
 export * from "./format";
 export * from "./spec";
+export * from "./calendar";

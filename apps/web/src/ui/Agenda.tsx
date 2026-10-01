@@ -6,6 +6,7 @@ import { isDoneOn, type MemoryEntry } from "@dilo/memory";
 import type { Dilo } from "./useDilo";
 import { Clarify } from "./Clarify";
 import { CheckIcon, CloseIcon } from "./icons";
+import { CalendarLink } from "./CalendarLink";
 import { clockLabel, itemMeta, longDay, typeLabel } from "./display";
 
 type Tab = "oggi" | "prossimi" | "note";
@@ -246,6 +247,7 @@ function Row({
         </p>
       </div>
       {clock && <span className="row-time">{clock}</span>}
+      <CalendarLink item={item} compact />
       <RemoveButton item={item} dilo={dilo} />
     </li>
   );

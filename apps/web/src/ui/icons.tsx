@@ -26,3 +26,9 @@ export const StopIcon = () => (
     <rect x="7" y="7" width="10" height="10" rx="2" fill="currentColor" stroke="none" />
   </svg>
 );
+export const CalendarIcon = () => (
+  <svg {...base} width={16} height={16}>
+    <rect x="3.5" y="5" width="17" height="15" rx="3" />
+    <path d="M3.5 10h17M8 3v4M16 3v4M12 13v4M10 15h4" />
+  </svg>
+);
