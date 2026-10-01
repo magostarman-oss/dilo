@@ -1,0 +1,11 @@
+{
+  "name": "DILO",
+  "short_name": "DILO",
+  "description": "Tu dillo. DILO ci pensa.",
+  "lang": "it",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f6f4ef",
+  "theme_color": "#f6f4ef",
+  "icons": [{ "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml" }]
+}

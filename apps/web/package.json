@@ -1,0 +1,29 @@
+{
+  "name": "@dilo/web",
+  "version": "0.1.0",
+  "private": true,
+  "description": "DILO sul web: app mobile-first (home e vista Oggi) e API di comprensione.",
+  "type": "module",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@dilo/client": "workspace:*",
+    "@dilo/core": "workspace:*",
+    "@dilo/memory": "workspace:*",
+    "@dilo/nlu": "workspace:*",
+    "@next/env": "16.3.8",
+    "next": "^16.0.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "server-only": "^0.0.1"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0"
+  }
+}

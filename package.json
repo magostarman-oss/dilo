@@ -1,0 +1,24 @@
+{
+  "name": "dilo",
+  "private": true,
+  "description": "DILO: assistente personale AI in italiano. Tu dillo. DILO ci pensa.",
+  "packageManager": "pnpm@10.33.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "web": "pnpm --filter @dilo/web dev",
+    "web:build": "pnpm --filter @dilo/web build",
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test",
+    "test:live": "pnpm --filter @dilo/nlu test:live",
+    "dilo": "pnpm --filter @dilo/nlu cli"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.0",
+    "vitest": "^3.2.0",
+    "tsx": "^4.20.0",
+    "@types/node": "^22.0.0"
+  }
+}
