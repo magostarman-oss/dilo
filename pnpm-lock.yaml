@@ -23,6 +23,9 @@ importers:
 
   apps/web:
     dependencies:
+      '@dilo/actions':
+        specifier: workspace:*
+        version: link:../../packages/actions
       '@dilo/client':
         specifier: workspace:*
         version: link:../../packages/client
@@ -57,6 +60,15 @@ importers:
       '@types/react-dom':
         specifier: ^19.2.0
         version: 19.3.0(@types/react@19.3.0)
+
+  packages/actions:
+    dependencies:
+      '@dilo/core':
+        specifier: workspace:*
+        version: link:../core
+      '@dilo/memory':
+        specifier: workspace:*
+        version: link:../memory
 
   packages/client:
     dependencies:
