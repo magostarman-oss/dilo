@@ -31,11 +31,14 @@ export const WireItem = z.object({
   sourceText: z.string(),
   question: z.string().nullable(),
   questionField: ClarificationField.nullable(),
+  replaces: z.string().nullable().describe("Ref of the saved item this item changes, e.g. k2; null for a new item"),
 });
 export type WireItem = z.infer<typeof WireItem>;
 
 export const Extraction = z.object({
   items: z.array(WireItem),
+  /** Refs of saved items the user cancelled ("la cena di sabato non c'è più"). */
+  cancel: z.array(z.string()),
   reply: z.string().nullable(),
 });
 export type Extraction = z.infer<typeof Extraction>;

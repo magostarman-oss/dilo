@@ -21,13 +21,7 @@ const Timezone = z
     }
   }, "Fuso orario non valido");
 
-export const UnderstandRequest = z.object({
-  text: Text,
-  timezone: Timezone.optional(),
-});
-export type UnderstandRequest = z.infer<typeof UnderstandRequest>;
-
-/** Pending items are echoed back by the app; only the fields the engine reads are checked. */
+/** Saved items are echoed back by the app; only the fields the engine reads are checked. */
 const PendingItem = z
   .object({
     id: z.string(),
@@ -36,6 +30,19 @@ const PendingItem = z
     clarification: z.object({ question: z.string().max(500), field: z.string(), origin: z.string() }).nullable(),
   })
   .passthrough();
+
+/** How many saved items an app may send along so a message can change them. */
+export const MAX_KNOWN = 60;
+
+const KnownItem = PendingItem.extend({ title: z.string().max(500), type: z.string(), createdAt: z.string() });
+
+export const UnderstandRequest = z.object({
+  text: Text,
+  timezone: Timezone.optional(),
+  /** The user's saved items, so "sposta la cena alle 21" can change one of them. */
+  known: z.array(KnownItem).max(MAX_KNOWN).optional(),
+});
+export type UnderstandRequest = { text: string; timezone?: string; known?: DiloItem[] };
 
 export const AnswerRequest = z.object({
   pending: z.array(PendingItem).min(1).max(20),
@@ -50,6 +57,10 @@ export interface UnderstandResponse {
   questions: { itemId: string; question: string }[];
   /** DILO's words when nothing actionable was said. */
   reply: string | null;
+  /** Ids of saved items that `items` replace (changed in place). */
+  updated?: string[];
+  /** Ids of saved items the user cancelled. */
+  cancelled?: string[];
 }
 
 export interface ErrorResponse {

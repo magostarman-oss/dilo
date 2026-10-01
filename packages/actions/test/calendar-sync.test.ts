@@ -27,6 +27,11 @@ function fakeGoogle() {
         return { ok: true, status: 200, json: async () => ({ id }) };
       }
       const id = url.split("/").pop()!;
+      if (init.method === "PUT") {
+        if (!events.has(id)) return { ok: false, status: 404, json: async () => ({}) };
+        events.set(id, JSON.parse(init.body!));
+        return { ok: true, status: 200, json: async () => ({ id }) };
+      }
       const had = events.delete(id);
       return { ok: had, status: had ? 204 : 404, json: async () => ({}) };
     },
@@ -79,5 +84,36 @@ describe("CalendarSyncedStore", () => {
     expect(google.calls.filter((c) => c.startsWith("POST"))).toHaveLength(1);
     expect(google.api.connected).toBe(false);
     expect(results.at(-1)).toEqual({ written: 0, waiting: 2 });
+  });
+
+  it("updates the event when the item changes, and rewrites it if deleted in Google", async () => {
+    const { google, store } = setup();
+    google.connect();
+    await store.save([item("a")]);
+    await store.sync();
+    expect(await store.sync()).toEqual({ written: 0, waiting: 0 });
+
+    await store.save([item("a", { time: "21:00", title: "Cena spostata" })]);
+    await store.sync();
+    expect(google.calls.at(-1)).toBe("PUT /ev1");
+    expect(google.events.get("ev1")).toMatchObject({ summary: "Cena spostata", start: { dateTime: "2026-10-03T21:00:00+02:00" } });
+    expect(await store.sync()).toEqual({ written: 0, waiting: 0 });
+
+    google.events.clear();
+    await store.save([item("a", { time: "22:00" })]);
+    await store.sync();
+    expect(google.calls.slice(-2)).toEqual(["PUT /ev1", "POST /"]);
+    expect((await store.all())[0]!.calendar!.eventId).toBe("ev2");
+  });
+
+  it("removes the event when an item no longer belongs in the calendar", async () => {
+    const { google, store } = setup();
+    google.connect();
+    await store.save([item("a")]);
+    await store.sync();
+    await store.save([item("a", { type: "note" })]);
+    await store.sync();
+    expect(google.events.size).toBe(0);
+    expect((await store.all())[0]!.calendar).toBeNull();
   });
 });

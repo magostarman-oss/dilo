@@ -7,6 +7,7 @@ import type { Dilo } from "./useDilo";
 import { Clarify } from "./Clarify";
 import { CheckIcon, CloseIcon } from "./icons";
 import { CalendarLink } from "./CalendarLink";
+import { EditItem } from "./EditItem";
 import { clockLabel, itemMeta, longDay, typeLabel } from "./display";
 
 type Tab = "oggi" | "prossimi" | "note";
@@ -177,13 +178,7 @@ export function Agenda({ dilo }: { dilo: Dilo }) {
           {notes.length > 0 ? (
             <Group title="Le tue note">
               {notes.map((e) => (
-                <li key={e.item.id} className="row">
-                  <div className="row-body">
-                    <p className="item-title">{e.item.title}</p>
-                    {e.item.details && <p className="item-meta">{e.item.details}</p>}
-                  </div>
-                  <RemoveButton item={e.item} dilo={dilo} />
-                </li>
+                <NoteRow key={e.item.id} item={e.item} dilo={dilo} />
               ))}
             </Group>
           ) : (
@@ -218,6 +213,7 @@ function Row({
   when?: boolean;
 }) {
   const { item } = entry;
+  const [editing, setEditing] = useState(false);
   const stored = entryOf.get(item.id);
   const done = stored ? isDoneOn(stored, date) : false;
   const clock = when ? "" : clockLabel(entry.time, entry.partOfDay);
@@ -239,17 +235,64 @@ function Row({
       ) : (
         <span className="dot" aria-hidden="true" />
       )}
-      <div className="row-body">
+      <Editable title={item.title} editing={editing} onToggle={() => setEditing(!editing)}>
         <p className="item-title">{item.title}</p>
         <p className="item-meta">
           {entry.reason === "deadline" && "Scadenza · "}
           {meta}
         </p>
-      </div>
+      </Editable>
       {clock && <span className="row-time">{clock}</span>}
       <CalendarLink item={item} synced={!!stored?.calendar} compact />
       <RemoveButton item={item} dilo={dilo} />
+      {editing && <EditItem item={item} dilo={dilo} onClose={() => setEditing(false)} />}
     </li>
+  );
+}
+
+function NoteRow({ item, dilo }: { item: DiloItem; dilo: Dilo }) {
+  const [editing, setEditing] = useState(false);
+  return (
+    <li className="row">
+      <Editable title={item.title} editing={editing} onToggle={() => setEditing(!editing)}>
+        <p className="item-title">{item.title}</p>
+        {item.details && <p className="item-meta">{item.details}</p>}
+      </Editable>
+      <RemoveButton item={item} dilo={dilo} />
+      {editing && <EditItem item={item} dilo={dilo} onClose={() => setEditing(false)} />}
+    </li>
+  );
+}
+
+/** The text of a row: tapping it opens the editor. */
+function Editable({
+  title,
+  editing,
+  onToggle,
+  children,
+}: {
+  title: string;
+  editing: boolean;
+  onToggle: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <div
+      className="row-body editable"
+      role="button"
+      tabIndex={0}
+      aria-expanded={editing}
+      aria-label={`Modifica: ${title}`}
+      onClick={onToggle}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onToggle();
+        }
+      }}
+    >
+      {children}
+    </div>
   );
 }
 

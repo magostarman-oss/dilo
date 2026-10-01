@@ -17,8 +17,7 @@ export function DiloApp() {
       </header>
 
       <section className="hero">
-        <h1 className="headline">Cosa hai in testa?</h1>
-        <Composer dilo={dilo} />
+        <Composer dilo={dilo} headline={<h1 className="headline">Cosa hai in testa?</h1>} />
       </section>
 
       {dilo.error && (

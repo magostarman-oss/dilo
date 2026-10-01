@@ -5,7 +5,7 @@ import { handleAnswer, handleUnderstand } from "../src/server/handlers";
 const wire = (p: Partial<WireItem> & Pick<WireItem, "type" | "title">): WireItem => ({
   details: null, date: null, time: null, endDate: null, endTime: null, deadline: null, deadlineTime: null,
   repeat: null, alertMinutesBefore: null, people: [], location: null, sourceText: p.title,
-  question: null, questionField: null, ...p,
+  question: null, questionField: null, replaces: null, ...p,
 });
 
 const engineWith = (...outputs: (Extraction | Error)[]) => {
@@ -24,7 +24,7 @@ describe("API handlers", () => {
   it("understands a sentence", async () => {
     const res = await handleUnderstand(
       { text: "Domani alle 15 prenota il dentista", timezone: "Europe/Rome" },
-      engineWith({ reply: null, items: [wire({ type: "task", title: "Prenotare il dentista", date: "d+1", time: "15:00" })] }),
+      engineWith({ reply: null, cancel: [], items: [wire({ type: "task", title: "Prenotare il dentista", date: "d+1", time: "15:00" })] }),
     );
     expect(res.status).toBe(200);
     expect(res.body).toMatchObject({ items: [{ type: "task", title: "Prenotare il dentista", time: "15:00", status: "ready" }] });
@@ -32,8 +32,8 @@ describe("API handlers", () => {
 
   it("answers a clarification by replacing the pending item", async () => {
     const getEngine = engineWith(
-      { reply: null, items: [wire({ type: "reminder", title: "Chiamare Marco", question: "Quando?", questionField: "date" })] },
-      { reply: null, items: [wire({ type: "reminder", title: "Chiamare Marco", date: "d+1", time: "09:00" })] },
+      { reply: null, cancel: [], items: [wire({ type: "reminder", title: "Chiamare Marco", question: "Quando?", questionField: "date" })] },
+      { reply: null, cancel: [], items: [wire({ type: "reminder", title: "Chiamare Marco", date: "d+1", time: "09:00" })] },
     );
     const first = await handleUnderstand({ text: "ricordami di chiamare Marco" }, getEngine);
     const pending = "items" in first.body ? first.body.items : [];

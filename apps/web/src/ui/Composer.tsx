@@ -3,10 +3,11 @@
 import { useRef, useState, type FormEvent } from "react";
 import type { Dilo } from "./useDilo";
 import { useSpeech } from "./useSpeech";
-import { ArrowUpIcon, MicIcon, StopIcon } from "./icons";
+import type { ReactNode } from "react";
+import { ArrowUpIcon } from "./icons";
 
 /** The heart of the home: "Parla con DILO" and "Oppure scrivi qui...". */
-export function Composer({ dilo }: { dilo: Dilo }) {
+export function Composer({ dilo, headline }: { dilo: Dilo; headline: ReactNode }) {
   const [text, setText] = useState("");
   const [hint, setHint] = useState<string | null>(null);
   const input = useRef<HTMLTextAreaElement>(null);
@@ -48,10 +49,18 @@ export function Composer({ dilo }: { dilo: Dilo }) {
         aria-pressed={speech.listening}
       >
         <span className="talk-orb" aria-hidden="true">
-          {speech.listening ? <StopIcon /> : <MicIcon />}
+          <span className="wave">
+            <span />
+            <span />
+            <span />
+            <span />
+            <span />
+          </span>
         </span>
         <span className="talk-label">{speech.listening ? "Ho finito" : "Parla con DILO"}</span>
       </button>
+
+      {headline}
 
       <p className={`composer-status${status ? " is-visible" : ""}`} role="status" aria-live="polite">
         {status ?? " "}

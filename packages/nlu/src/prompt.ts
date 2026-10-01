@@ -1,5 +1,5 @@
 import { DateTime } from "luxon";
-import { MONTHS_IT, WEEKDAYS_IT } from "@dilo/core";
+import { MONTHS_IT, WEEKDAYS_IT, type DiloItem, type IsoDate, type ResolvedRecurrence } from "@dilo/core";
 
 /**
  * The system prompt is static (no dates in it) so it can be cached across
@@ -65,8 +65,13 @@ When you set question, set questionField to what it is about: type, title, date,
 
 If the whole message contains nothing to do or remember, return no items and put a short Italian reply in reply: a question if it seems the user wanted something ("Cosa vuoi che ricordi?"), or a brief friendly answer to small talk.
 
+## Changing what DILO already remembers
+The message may come with the user's saved items (<salvati>), each with a ref (k1, k2…) and its current values written as specs. When the user clearly changes one of them (moves it, changes the time or the place, renames it, corrects it: "sposta la cena con Giulia alle 21", "il dentista è giovedì e non mercoledì", "la riunione di domani è alle 10"), output that item COMPLETE, as it should be after the change, with replaces set to its ref: copy every value that did not change from the saved specs (keep cal: dates as given), change only what the user said. sourceText is the user's new words. A change like "anticipa di un'ora" is computed from the saved time.
+When the user cancels a saved item ("annulla la cena di sabato", "il dentista è saltato", "cancella il promemoria del latte"), put its ref in cancel and output no item for it.
+Match a saved item only when the user clearly refers to it (same activity, person or place). If it is unclear which saved item they mean, change nothing and ask in reply ("Quale cena vuoi spostare?"). Anything that is not a change to a saved item is a new item with replaces null, as usual. cancel is [] when nothing is cancelled.
+
 ## Other fields
-reply: null whenever there are items. people: people mentioned, as written ("Luca", "mia madre", "il dottor Bianchi"). location: the place if said. alertMinutesBefore: only for explicit advance notice ("avvisami mezz'ora prima" → 30). details: useful extra information that is not in the title, else null.`;
+reply: null whenever there are items or cancellations. people: people mentioned, as written ("Luca", "mia madre", "il dottor Bianchi"). location: the place if said. alertMinutesBefore: only for explicit advance notice ("avvisami mezz'ora prima" → 30). details: useful extra information that is not in the title, else null.`;
 
 export interface PromptContext {
   now: Date;
@@ -88,8 +93,62 @@ export function describeNow({ now, timezone }: PromptContext): string {
   return `${WEEKDAYS_IT[d.weekday - 1]} ${d.day} ${MONTHS_IT[d.month - 1]} ${d.year}, ore ${d.toFormat("HH:mm")} (${timezone})`;
 }
 
-export function buildUserMessage(utterance: string, ctx: PromptContext): string {
-  return `Adesso è ${describeNow(ctx)}.
+/** A saved item as the model sees it: a ref and the current values as specs it can copy. */
+export interface KnownItem {
+  ref: string;
+  item: DiloItem;
+}
+
+const calSpec = (d: IsoDate) => `cal:${d.slice(8, 10)}-${d.slice(5, 7)}-${d.slice(0, 4)}`;
+
+export function repeatSpec(r: ResolvedRecurrence): string {
+  let s: string = r.frequency + (r.interval > 1 ? `/${r.interval}` : "");
+  if (r.frequency === "weekly" && r.weekdays.length) s += `:${r.weekdays.join(",")}`;
+  if (r.frequency === "monthly" && r.dayOfMonth != null) s += `:${r.dayOfMonth}`;
+  if (r.frequency === "yearly" && r.dayOfMonth != null && r.month != null) {
+    s += `:${String(r.dayOfMonth).padStart(2, "0")}-${String(r.month).padStart(2, "0")}`;
+  }
+  if (r.until) s += `;until=${calSpec(r.until)}`;
+  if (r.count) s += `;count=${r.count}`;
+  return s;
+}
+
+const attr = (v: string) => v.replace(/[<>"\n]/g, " ").trim();
+
+export function describeKnown({ ref, item }: KnownItem): string {
+  const fields: [string, string | null][] = [
+    ["type", item.type],
+    ["title", item.title],
+    ["date", item.date ? calSpec(item.date) : item.window ? `tra ${item.window.from} e ${item.window.to}` : null],
+    ["time", item.time ?? item.partOfDay],
+    ["endDate", item.endDate ? calSpec(item.endDate) : null],
+    ["endTime", item.endTime],
+    ["deadline", item.deadline ? calSpec(item.deadline.date) : null],
+    ["deadlineTime", item.deadline?.time ?? null],
+    ["repeat", item.recurrence ? repeatSpec(item.recurrence) : null],
+    ["alertMinutesBefore", item.alertMinutesBefore != null ? String(item.alertMinutesBefore) : null],
+    ["people", item.people.length ? item.people.join(", ") : null],
+    ["location", item.location],
+    ["details", item.details],
+    ["detto", item.source.text],
+  ];
+  const body = fields
+    .filter(([, v]) => v)
+    .map(([k, v]) => `${k}="${attr(v!)}"`)
+    .join(" ");
+  return `<salvato ref="${ref}" ${body}/>`;
+}
+
+export function buildUserMessage(utterance: string, ctx: PromptContext, known: KnownItem[] = []): string {
+  const saved = known.length
+    ? `
+
+Cose che l'utente ha già salvato in DILO (usale solo se il messaggio le cambia o le cancella):
+<salvati>
+${known.map(describeKnown).join("\n")}
+</salvati>`
+    : "";
+  return `Adesso è ${describeNow(ctx)}.${saved}
 
 Messaggio dell'utente:
 <messaggio>

@@ -38,7 +38,7 @@ describe("DiloAssistant", () => {
     expect((await store.all()).map((e) => e.item.id)).toEqual(["a", "p2"]);
     expect(calls[1]).toEqual({ pending: [pending], answer: "venerdì", timezone: "Europe/Rome" });
 
-    await dilo.forget([item("a")]);
+    await dilo.forget({ items: [item("a")] });
     expect((await store.all()).map((e) => e.item.id)).toEqual(["p2"]);
   });
 });
@@ -68,5 +68,26 @@ describe("request contract", () => {
     expect(UnderstandRequest.safeParse({ text: "ciao", timezone: "Europe/Rome" }).success).toBe(true);
     expect(AnswerRequest.safeParse({ pending: [], answer: "sì" }).success).toBe(false);
     expect(AnswerRequest.safeParse({ pending: [item("a")], answer: "sì" }).success).toBe(true);
+  });
+});
+
+describe("DiloAssistant changes", () => {
+  it("sends saved items along, updates changed ones in place, removes cancelled ones, and undoes it all", async () => {
+    const store = new KeyValueItemStore(new MemoryStorage());
+    await store.save([item("cena", { type: "event", time: "20:30" }), item("latte"), item("old", { date: "2026-09-01" })]);
+    let sent: unknown = null;
+    const api: DiloApi = {
+      understand: async (req) => ((sent = req), { ...respond([item("cena", { type: "event", time: "21:00" })]), updated: ["cena"], cancelled: ["latte"] }),
+      answer: async () => respond([]),
+    };
+    const dilo = new DiloAssistant(api, store, "Europe/Rome", () => new Date("2026-10-01T08:00:00Z"));
+
+    const heard = await dilo.say("sposta la cena alle 21, il latte non serve");
+    expect((sent as { known: DiloItem[] }).known.map((i) => i.id)).toEqual(["cena", "latte"]);
+    expect((await store.all()).map((e) => [e.item.id, e.item.time])).toEqual([["cena", "21:00"], ["old", null]]);
+    expect(heard).toMatchObject({ updated: ["cena"], cancelled: [{ id: "latte" }], previous: [{ id: "cena", time: "20:30" }] });
+
+    await dilo.forget(heard);
+    expect((await store.all()).map((e) => [e.item.id, e.item.time]).sort()).toEqual([["cena", "20:30"], ["latte", null], ["old", null]]);
   });
 });

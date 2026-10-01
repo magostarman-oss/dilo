@@ -1,6 +1,6 @@
 import { DEFAULT_TIMEZONE, resolveDraft, type DiloItem } from "@dilo/core";
 import { ClaudeExtractionModel, type ClaudeModelOptions, type ExtractionModel } from "./model";
-import { buildClarificationMessage, buildUserMessage, type ClarificationTurn } from "./prompt";
+import { buildClarificationMessage, buildUserMessage, type ClarificationTurn, type KnownItem } from "./prompt";
 import { toDraft, type WireItem } from "./schema";
 
 const PROBLEM_QUESTION = {
@@ -15,6 +15,8 @@ export interface UnderstandOptions {
   now?: Date;
   /** The user's IANA timezone. Defaults to the engine's. */
   timezone?: string;
+  /** Items the user already saved, so a message can change or cancel them. */
+  known?: DiloItem[];
 }
 
 export interface Understanding {
@@ -23,6 +25,10 @@ export interface Understanding {
   questions: { itemId: string; question: string }[];
   /** A reply when nothing actionable was said ("Cosa vuoi che ricordi?"). */
   reply: string | null;
+  /** Ids of saved items that `items` replace (same id: the item was changed). */
+  updated: string[];
+  /** Ids of saved items the user cancelled. */
+  cancelled: string[];
 }
 
 export interface DiloEngineOptions {
@@ -52,10 +58,29 @@ export class DiloEngine {
   async understand(text: string, options: UnderstandOptions = {}): Promise<Understanding> {
     const now = options.now ?? new Date();
     const timezone = options.timezone ?? this.timezone;
-    if (!text.trim()) return { items: [], questions: [], reply: "Cosa hai in testa?" };
+    if (!text.trim()) return { items: [], questions: [], reply: "Cosa hai in testa?", updated: [], cancelled: [] };
 
-    const extraction = await this.model.extract(buildUserMessage(text, { now, timezone }));
-    return this.finish(extraction.items, extraction.reply, text, now, timezone);
+    const known: KnownItem[] = (options.known ?? []).map((item, i) => ({ ref: `k${i + 1}`, item }));
+    const byRef = new Map(known.map((k) => [k.ref, k.item]));
+    const extraction = await this.model.extract(buildUserMessage(text, { now, timezone }, known));
+    const result = this.finish(extraction.items, extraction.reply, text, now, timezone, extraction.cancel?.length ?? 0);
+
+    // A changed item keeps its identity, so memory and the calendar update it in place.
+    const updated = new Set<string>();
+    extraction.items.forEach((w, i) => {
+      const before = w.replaces ? byRef.get(w.replaces.trim()) : undefined;
+      if (!before || updated.has(before.id)) return;
+      const item = result.items[i]!;
+      const oldId = item.id;
+      item.id = before.id;
+      item.createdAt = before.createdAt;
+      updated.add(before.id);
+      for (const q of result.questions) if (q.itemId === oldId) q.itemId = before.id;
+    });
+    const cancelled = [...new Set((extraction.cancel ?? []).map((r) => byRef.get(r.trim())?.id))].filter(
+      (id): id is string => !!id && !updated.has(id),
+    );
+    return { ...result, updated: [...updated], cancelled };
   }
 
   /**
@@ -68,11 +93,11 @@ export class DiloEngine {
     const turns: ClarificationTurn[] = pending
       .filter((i) => i.clarification)
       .map((i) => ({ original: i.source.text, question: i.clarification!.question, answer }));
-    if (turns.length === 0) return { items: pending, questions: [], reply: null };
+    if (turns.length === 0) return { items: pending, questions: [], reply: null, updated: [], cancelled: [] };
 
     const extraction = await this.model.extract(buildClarificationMessage(turns, { now, timezone }));
     const utterance = `${pending.map((i) => i.source.text).join(" / ")} → ${answer}`;
-    return this.finish(extraction.items, extraction.reply, utterance, now, timezone);
+    return this.finish(extraction.items, extraction.reply, utterance, now, timezone, 0);
   }
 
   private finish(
@@ -81,6 +106,7 @@ export class DiloEngine {
     utterance: string,
     now: Date,
     timezone: string,
+    cancellations: number,
   ): Understanding {
     const items = wire.map((w) => {
       const { draft, problems } = toDraft(w);
@@ -96,7 +122,12 @@ export class DiloEngine {
     return {
       items,
       questions: items.filter((i) => i.clarification).map((i) => ({ itemId: i.id, question: i.clarification!.question })),
-      reply: items.length === 0 ? (reply?.trim() || "Non ho trovato niente da ricordare. Cosa hai in testa?") : null,
+      reply:
+        items.length === 0 && cancellations === 0
+          ? reply?.trim() || "Non ho trovato niente da ricordare. Cosa hai in testa?"
+          : null,
+      updated: [],
+      cancelled: [],
     };
   }
 }

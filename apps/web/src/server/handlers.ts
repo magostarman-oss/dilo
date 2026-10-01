@@ -22,7 +22,8 @@ export type EngineProvider = () => DiloEngine | null;
 export async function handleUnderstand(json: unknown, getEngine: EngineProvider): Promise<ApiResult> {
   const req = UnderstandRequest.safeParse(json);
   if (!req.success) return fail(400, "bad_request", "Scrivi qualcosa da dire a DILO.");
-  return run(getEngine, (engine) => engine.understand(req.data.text, { timezone: req.data.timezone }));
+  const known = req.data.known as unknown as DiloItem[] | undefined;
+  return run(getEngine, (engine) => engine.understand(req.data.text, { timezone: req.data.timezone, known }));
 }
 
 export async function handleAnswer(json: unknown, getEngine: EngineProvider): Promise<ApiResult> {

@@ -37,6 +37,12 @@ export class GoogleCalendarApi {
     return res.id;
   }
 
+  /** Replaces the event; returns false when it no longer exists (deleted by the user in Google). */
+  async update(eventId: string, event: GoogleEventBody): Promise<boolean> {
+    const res = await this.call("PUT", `${BASE}/${encodeURIComponent(eventId)}`, event);
+    return res !== null;
+  }
+
   async remove(eventId: string): Promise<void> {
     await this.call("DELETE", `${BASE}/${encodeURIComponent(eventId)}`);
   }
@@ -53,8 +59,8 @@ export class GoogleCalendarApi {
       this.onUnauthorized();
       throw new CalendarAuthError();
     }
-    // Already gone from the calendar: nothing left to delete.
-    if (method === "DELETE" && (res.status === 404 || res.status === 410)) return null;
+    // Already gone from the calendar: nothing left to delete or update.
+    if ((method === "DELETE" || method === "PUT") && (res.status === 404 || res.status === 410)) return null;
     if (!res.ok) throw new Error(`Google Calendar ${method} ${res.status}`);
     return method === "DELETE" ? null : res.json();
   }

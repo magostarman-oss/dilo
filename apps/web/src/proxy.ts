@@ -32,5 +32,6 @@ function safeEqual(a: string, b: string): boolean {
 }
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image).*)"],
+  // The app's icons and manifest stay public: phones fetch them without the password when installing DILO.
+  matcher: ["/((?!_next/static|_next/image|manifest.webmanifest|icons/|icon.svg|apple-icon).*)"],
 };

@@ -1,11 +1,24 @@
-import { toGoogleEvent, type DiloItem, type IsoDate } from "@dilo/core";
+import { toGoogleEvent, type DiloItem, type GoogleEventBody, type IsoDate } from "@dilo/core";
 import { isDoneOn, type CalendarLink, type ItemStore, type MemoryEntry } from "@dilo/memory";
 import { CalendarAuthError, type GoogleCalendarApi } from "./google-calendar";
 
 export interface SyncResult {
+  /** Events created, updated or removed. */
   written: number;
   /** Items waiting for the user to (re)connect the calendar. */
   waiting: number;
+}
+
+const fingerprint = (event: GoogleEventBody) => JSON.stringify(event);
+
+/** What the calendar needs for an entry: a new event, a changed event, its removal, or nothing. */
+export function calendarChange(entry: MemoryEntry, today: IsoDate): "insert" | "update" | "remove" | null {
+  if (!entry.calendar) return wantsCalendar(entry, today) ? "insert" : null;
+  const event = toGoogleEvent(entry.item);
+  if (!event) return "remove"; // Became a note or a question: it no longer belongs in the calendar.
+  // Links written before fingerprints existed get rewritten once, which is harmless.
+  if (entry.calendar.fingerprint !== fingerprint(event)) return "update";
+  return null;
 }
 
 /** Whether an item belongs in the calendar now: it has a day, it is not past and not done. */
@@ -19,7 +32,8 @@ export function wantsCalendar(entry: MemoryEntry, today: IsoDate): boolean {
 
 /**
  * An ItemStore that also keeps the user's Google Calendar in step: what DILO
- * remembers is written to the calendar, and what is undone or deleted leaves it.
+ * remembers is written to the calendar, what changes is updated there, and what
+ * is undone or deleted leaves it.
  * When the calendar is not connected, items simply wait and are written later.
  */
 export class CalendarSyncedStore implements ItemStore {
@@ -65,7 +79,7 @@ export class CalendarSyncedStore implements ItemStore {
     }
   }
 
-  /** Writes every item that should be in the calendar and is not yet. Safe to call often. */
+  /** Brings the calendar in line with memory: new, changed and dropped events. Safe to call often. */
   sync(): Promise<SyncResult> {
     if (this.running) {
       this.again = true;
@@ -83,14 +97,15 @@ export class CalendarSyncedStore implements ItemStore {
 
   private async run(): Promise<SyncResult> {
     const today = this.today();
-    const todo = (await this.inner.all()).filter((e) => wantsCalendar(e, today));
+    const todo = (await this.inner.all())
+      .map((entry) => ({ entry, change: calendarChange(entry, today) }))
+      .filter((t) => t.change !== null);
     let written = 0;
     let waiting = todo.length;
     if (this.api.connected) {
-      for (const entry of todo) {
+      for (const { entry, change } of todo) {
         try {
-          const eventId = await this.api.insert(toGoogleEvent(entry.item)!);
-          await this.inner.setCalendar(entry.item.id, { provider: "google", eventId, syncedAt: this.now().toISOString() });
+          await this.apply(entry, change!);
           written++;
           waiting--;
         } catch (err) {
@@ -102,5 +117,20 @@ export class CalendarSyncedStore implements ItemStore {
     const result = { written, waiting };
     this.onResult(result);
     return result;
+  }
+
+  private async apply(entry: MemoryEntry, change: "insert" | "update" | "remove"): Promise<void> {
+    const id = entry.item.id;
+    if (change === "remove") {
+      await this.api.remove(entry.calendar!.eventId);
+      await this.inner.setCalendar(id, null);
+      return;
+    }
+    const event = toGoogleEvent(entry.item)!;
+    let eventId = entry.calendar?.eventId ?? null;
+    // Deleted by the user in Google meanwhile: write it again, it changed in DILO after all.
+    if (change === "update" && !(await this.api.update(eventId!, event))) eventId = null;
+    eventId ??= await this.api.insert(event);
+    await this.inner.setCalendar(id, { provider: "google", eventId, syncedAt: this.now().toISOString(), fingerprint: fingerprint(event) });
   }
 }

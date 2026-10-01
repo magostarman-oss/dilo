@@ -19,6 +19,8 @@ export interface CalendarLink {
   provider: "google";
   eventId: string;
   syncedAt: string;
+  /** What was written, to notice when the item changes and the event must follow. */
+  fingerprint?: string;
 }
 
 /**

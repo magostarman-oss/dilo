@@ -11,7 +11,7 @@ export function Understood({ dilo }: { dilo: Dilo }) {
   const last = dilo.lastHeard;
   if (!last) return null;
 
-  if (last.items.length === 0) {
+  if (last.items.length === 0 && last.cancelled.length === 0) {
     return (
       <section className="card understood" aria-live="polite">
         <header className="card-head">
@@ -26,12 +26,16 @@ export function Understood({ dilo }: { dilo: Dilo }) {
   }
 
   const asking = last.items.filter((i) => i.clarification).length;
+  const changed = new Set(last.updated);
+  const onlyChanges = last.items.every((i) => changed.has(i.id));
   const title =
-    asking === last.items.length
+    asking > 0 && asking === last.items.length
       ? "Mi serve un dettaglio"
-      : last.items.length === 1
-        ? "Ho capito"
-        : `Ho capito ${last.items.length} cose`;
+      : onlyChanges
+        ? "Fatto, ho aggiornato"
+        : last.items.length === 1
+          ? "Ho capito"
+          : `Ho capito ${last.items.length} cose`;
 
   return (
     <section className="card understood" aria-live="polite">
@@ -48,16 +52,22 @@ export function Understood({ dilo }: { dilo: Dilo }) {
       <ol className="understood-list">
         {last.items.map((item) => (
           <li key={item.id} className={`understood-item type-${item.type}`}>
-            <span className="type-chip">{typeLabel(item)}</span>
+            <span className="type-chip">{changed.has(item.id) ? `${typeLabel(item)} · modificato` : typeLabel(item)}</span>
             <p className="item-title">{item.title}</p>
             {itemMeta(item, dilo.now) && <p className="item-meta">{itemMeta(item, dilo.now)}</p>}
             {item.clarification ? <Clarify item={item} dilo={dilo} /> : <CalendarLink item={item} synced={dilo.entries.some((e) => e.item.id === item.id && e.calendar)} />}
           </li>
         ))}
+        {last.cancelled.map((item) => (
+          <li key={`x-${item.id}`} className="understood-item is-cancelled">
+            <span className="type-chip">{typeLabel(item)} · cancellato</span>
+            <p className="item-title">{item.title}</p>
+          </li>
+        ))}
       </ol>
 
       <footer className="card-foot">
-        <span>{asking ? "Il resto l'ho già salvato." : "Salvato. Ci penso io."}</span>
+        <span>{asking ? "Il resto l'ho già salvato." : onlyChanges ? "Aggiornato. Ci penso io." : "Salvato. Ci penso io."}</span>
         <button className="text-btn" onClick={() => void dilo.undoLast()}>
           Annulla
         </button>

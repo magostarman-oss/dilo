@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { DiloApiError, DiloAssistant, HttpDiloApi, type Heard } from "@dilo/client";
-import { todayIso, type DiloItem } from "@dilo/core";
+import { todayIso, type DiloItem, type ItemEdit } from "@dilo/core";
 import { KeyValueItemStore, MemoryStorage, type KeyValueStorage, type MemoryEntry } from "@dilo/memory";
 import { CalendarSyncedStore, GoogleCalendarApi, type SyncResult } from "@dilo/actions";
 import { GOOGLE_CLIENT_ID, googleAuth } from "./googleAuth";
@@ -156,9 +156,18 @@ export function useDilo() {
 
   const undoLast = useCallback(async () => {
     if (!assistant || !lastHeard) return;
-    await assistant.forget(lastHeard.items);
+    await assistant.forget(lastHeard);
     setLastHeard(null);
   }, [assistant, lastHeard]);
+
+  const edit = useCallback(
+    async (item: DiloItem, change: ItemEdit) => {
+      if (!assistant) return;
+      const updated = await assistant.edit(item, change);
+      setLastHeard((last) => (last ? { ...last, items: last.items.map((i) => (i.id === item.id ? updated : i)) } : last));
+    },
+    [assistant],
+  );
 
   const setDone = useCallback(
     (id: string, done: boolean, date: string) => store?.setDone(id, done, date),
@@ -189,6 +198,7 @@ export function useDilo() {
     dismissLast: () => setLastHeard(null),
     dismissError: () => setError(null),
     setDone,
+    edit,
     remove,
   };
 }
