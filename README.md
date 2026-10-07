@@ -39,6 +39,23 @@ Per ora la memoria sta nel browser (localStorage): ogni dispositivo ha la sua. S
 2. In **Environment Variables** aggiungi `ANTHROPIC_API_KEY` e `DILO_PASSWORD` (così solo chi ha la password usa la tua chiave).
 3. **Deploy**. Sul telefono apri l'indirizzo, inserisci la password e, da Safari o Chrome, "Aggiungi a schermata Home".
 
+### Google Calendar
+
+Ogni elemento con una data ha "Aggiungi a Google Calendar" (link precompilato, nessuna configurazione). Per il salvataggio automatico: crea un OAuth Client ID di tipo *Web application* su Google Cloud (Google Calendar API attiva, origine `https://<tuo-dominio>`), mettilo in `NEXT_PUBLIC_GOOGLE_CLIENT_ID` e rifai il deploy. Nell'app compare "Collega Google Calendar": da lì ciò che ha una data viene scritto nel calendario, e ciò che annulli o elimini viene tolto. Il permesso dura circa un'ora; poi basta un tocco su "Ricollega".
+
+### WhatsApp
+
+DILO risponde anche su WhatsApp, come una chat: gli scrivi o gli mandi un vocale, lui risponde con quello che ha capito e lo ricorda. Scrivendo *oggi* o *domani* mostra cosa c'è in programma, *annulla* toglie l'ultimo messaggio. Se manca qualcosa fa una domanda e legge il messaggio successivo come risposta.
+
+Come funziona: Meta chiama `POST /api/whatsapp` (firmato con la chiave segreta dell'app; escluso dalla password), DILO risponde subito 200 e poi trascrive il vocale, capisce, salva e risponde con l'API WhatsApp Cloud. La memoria di ogni numero sta in un database Redis sul server (`src/server/whatsapp`), separata da quella del browser.
+
+1. **Meta**: su [developers.facebook.com](https://developers.facebook.com/apps) crea un'app di tipo *Business* e aggiungi il prodotto **WhatsApp**. Meta dà un numero di prova gratuito: in *Configurazione API* aggiungi il tuo cellulare tra i destinatari. Copia l'*ID del numero di telefono*. Per un token che non scade crea un *utente di sistema* in Business Manager con il permesso `whatsapp_business_messaging`.
+2. **Database**: su Vercel, *Storage* → *Create* → **Upstash Redis** (piano gratuito) e collegalo al progetto: crea `KV_REST_API_URL` e `KV_REST_API_TOKEN`.
+3. **Variabili su Vercel**: `WHATSAPP_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_APP_SECRET`, `WHATSAPP_VERIFY_TOKEN` (una parola a scelta), `WHATSAPP_ALLOWED_NUMBERS` (il tuo numero; senza, DILO non risponde a nessuno) e, per i vocali, `OPENAI_API_KEY`. Poi rifai il deploy.
+4. **Webhook**: in Meta, *WhatsApp* → *Configurazione* → URL `https://<tuo-dominio>/api/whatsapp`, token di verifica uguale a `WHATSAPP_VERIFY_TOKEN`; poi attiva il campo **messages**.
+
+Costi: rispondere ai messaggi dell'utente è gratis su WhatsApp; i vocali costano circa 0,3 centesimi al minuto con `gpt-4o-mini-transcribe`. Per ora DILO risponde soltanto: i promemoria inviati da DILO all'ora giusta richiedono un modello di messaggio approvato da Meta e arriveranno in un secondo passo.
+
 ## Test
 
 ```bash
@@ -70,6 +87,7 @@ const oggi = buildAgenda(itemsSalvati, todayIso());
 apps/
   web/    @dilo/web    Next.js. UI React (src/ui) + API /api/understand e /api/answer (src/server, indipendenti
                        dal framework). La chiave API vive solo qui, lato server.
+                       /api/whatsapp: DILO come chat su WhatsApp (src/server/whatsapp), memoria in Redis.
 packages/
   core/   @dilo/core   Dominio + tempo. TypeScript puro, nessuna rete: gira su web, server e React Native.
                        Tipi degli elementi, risoluzione di date/orari/ricorrenze, vista "Oggi", testi in italiano.
@@ -78,6 +96,8 @@ packages/
                        non deve mai finire sul telefono.
   memory/ @dilo/memory Memoria: interfaccia ItemStore (salva, elimina, segna fatto, per giorno per le routine) e
                        implementazione su un key-value (localStorage oggi, AsyncStorage su Expo, server domani).
+  actions/@dilo/actions Azioni (DILO AGISCE): Google Calendar API e CalendarSyncedStore, che tiene il calendario
+                       allineato alla memoria.
   client/ @dilo/client Contratto dell'API (richieste validate, errori in italiano), client HTTP e DiloAssistant:
                        dice → capisce → ricorda, senza UI. Lo riuserà l'app Expo così com'è.
 ```

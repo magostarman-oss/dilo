@@ -33,5 +33,6 @@ function safeEqual(a: string, b: string): boolean {
 
 export const config = {
   // The app's icons and manifest stay public: phones fetch them without the password when installing DILO.
-  matcher: ["/((?!_next/static|_next/image|manifest.webmanifest|icons/|icon.svg|apple-icon).*)"],
+  // The WhatsApp webhook is called by Meta, which proves itself with a signature instead (see api/whatsapp).
+  matcher: ["/((?!_next/static|_next/image|manifest.webmanifest|icons/|icon.svg|apple-icon|api/whatsapp).*)"],
 };
