@@ -1,6 +1,7 @@
+import { CalendarSyncedStore, type GoogleCalendarApi } from "@dilo/actions";
 import { DiloApiError, DiloAssistant, type DiloApi, type Heard, type UnderstandResponse } from "@dilo/client";
-import { buildAgenda, todayIso, type AgendaEntry, type DiloItem, type IsoDate } from "@dilo/core";
-import { isDoneOn, KeyValueItemStore, type MemoryEntry } from "@dilo/memory";
+import { buildAgenda, todayIso, toGoogleEvent, type AgendaEntry, type DiloItem, type IsoDate } from "@dilo/core";
+import { isDoneOn, KeyValueItemStore, type ItemStore, type MemoryEntry } from "@dilo/memory";
 import { clockLabel, itemMeta, longDay, typeLabel } from "../../ui/display";
 import { handleAnswer, handleUnderstand, type ApiResult, type EngineProvider } from "../handlers";
 import type { ServerKv } from "./kv";
@@ -16,6 +17,15 @@ export interface ChatDeps {
   kv: ServerKv;
   timezone: string;
   now?: () => Date;
+  /** The user's Google Calendar, when the server is set up for it. */
+  calendar?: ChatCalendar | null;
+}
+
+export interface ChatCalendar {
+  /** The user's calendar, or null while they have not connected it. */
+  open(userId: string): Promise<GoogleCalendarApi | null>;
+  /** The link that connects it. */
+  connectLink(userId: string): Promise<string>;
 }
 
 /** What DILO remembers about the conversation itself, beyond the items. */
@@ -24,6 +34,8 @@ interface ChatState {
   pending?: { itemId: string; askedAt: string } | null;
   /** What the last message did, so "annulla" can take it back. */
   last?: Pick<Heard, "items" | "previous" | "cancelled"> | null;
+  /** DILO already suggested connecting Google Calendar once. */
+  calendarHinted?: boolean;
 }
 
 /** An answer counts only shortly after the question; later, a message is something new. */
@@ -38,6 +50,7 @@ export const HELP_TEXT = [
   "• *oggi* per vedere cosa hai in programma oggi",
   "• *domani* per vedere domani",
   "• *annulla* se ho capito male l'ultimo messaggio",
+  "• *calendario* per collegare il tuo Google Calendar",
 ].join("\n");
 
 const WELCOME = `Ciao, sono DILO. Tu dillo, DILO ci pensa.\n\n${HELP_TEXT}`;
@@ -51,21 +64,21 @@ const normalize = (text: string) =>
     .replace(/\s+/g, " ")
     .trim();
 
-const COMMANDS: { match: RegExp; command: "greet" | "help" | "today" | "tomorrow" | "undo" }[] = [
+const COMMANDS: { match: RegExp; command: "greet" | "help" | "today" | "tomorrow" | "undo" | "calendar" }[] = [
   { match: /^(ciao|salve|hey|ehi|buongiorno|buonasera|start|inizia)( dilo)?$/, command: "greet" },
   { match: /^(aiuto|help|\?|come funziona|cosa sai fare)$/, command: "help" },
   { match: /^((cosa|che) (ho|c e|devo fare) )?oggi$/, command: "today" },
   { match: /^((cosa|che) (ho|c e|devo fare) )?domani$/, command: "tomorrow" },
   { match: /^(annulla|annullalo|cancella l ultimo|undo)$/, command: "undo" },
+  { match: /^(collega )?(il )?(mio )?(google )?calendar(io)?( google)?$/, command: "calendar" },
 ];
 
 export async function chat(userId: string, text: string, deps: ChatDeps): Promise<string> {
   const now = deps.now ?? (() => new Date());
   const prefix = `dilo:wa:${userId}`;
-  const store = new KeyValueItemStore(deps.kv, `${prefix}:memory`, now);
-  const assistant = new DiloAssistant(inProcessApi(deps.getEngine), store, deps.timezone, now);
+  const memory = new KeyValueItemStore(deps.kv, `${prefix}:memory`, now);
   const state = await readState(deps.kv, `${prefix}:state`);
-  const save = (next: ChatState) => deps.kv.setItem(`${prefix}:state`, JSON.stringify(next));
+  const save = (next: ChatState) => deps.kv.setItem(`${prefix}:state`, JSON.stringify({ ...state, ...next }));
 
   const normalized = normalize(text);
   const command = COMMANDS.find((c) => c.match.test(normalized))?.command;
@@ -78,19 +91,27 @@ export async function chat(userId: string, text: string, deps: ChatDeps): Promis
     case "tomorrow": {
       const today = todayIso(now(), deps.timezone);
       const day = command === "today" ? today : addDays(today, 1);
-      return formatAgenda(await store.all(), day, command === "today" ? "Oggi" : "Domani", now());
+      return formatAgenda(await memory.all(), day, command === "today" ? "Oggi" : "Domani", now());
     }
-    case "undo": {
-      if (!state.last) return "Non c'è niente da annullare.";
-      await assistant.forget(state.last);
-      await save({ pending: null, last: null });
-      return "Fatto, ho annullato l'ultimo messaggio.";
-    }
+    case "calendar":
+      return calendarReply(userId, deps, memory, now);
+  }
+
+  // From here on DILO may change memory, and the calendar follows.
+  const { store, sync } = await withCalendar(userId, deps, memory, now);
+  const assistant = new DiloAssistant(inProcessApi(deps.getEngine), store, deps.timezone, now);
+
+  if (command === "undo") {
+    if (!state.last) return "Non c'è niente da annullare.";
+    await assistant.forget(state.last);
+    await save({ pending: null, last: null });
+    await sync();
+    return "Fatto, ho annullato l'ultimo messaggio.";
   }
 
   try {
     let heard: Heard;
-    const pendingItem = await openQuestion(state, await store.all(), now());
+    const pendingItem = await openQuestion(state, await memory.all(), now());
     if (pendingItem) {
       heard = await assistant.answer(pendingItem, text);
       // The answer replaced the item that asked: undo brings that one back.
@@ -99,15 +120,62 @@ export async function chat(userId: string, text: string, deps: ChatDeps): Promis
       heard = await assistant.say(text);
     }
     const question = heard.items.find((i) => i.clarification);
+    const synced = await sync();
+    // Once, when something with a date arrives and the calendar could be connected: say so.
+    const hint = !!deps.calendar && !synced && !state.calendarHinted && heard.items.some((i) => toGoogleEvent(i));
     await save({
       pending: question ? { itemId: question.id, askedAt: now().toISOString() } : null,
       last: heard.items.length || heard.cancelled.length ? heard : state.last ?? null,
+      ...(hint ? { calendarHinted: true } : {}),
     });
-    return formatHeard(heard, now());
+    const reply = formatHeard(heard, now());
+    return hint ? `${reply}\n\nVuoi ritrovarlo anche nel tuo Google Calendar? Scrivi *calendario*.` : reply;
   } catch (err) {
     if (err instanceof DiloApiError) return err.message;
     throw err;
   }
+}
+
+/**
+ * Memory wrapped so that the user's Google Calendar follows it, when connected.
+ * `sync` writes what changed and says whether the calendar is connected.
+ */
+async function withCalendar(
+  userId: string,
+  deps: ChatDeps,
+  memory: ItemStore,
+  now: () => Date,
+): Promise<{ store: ItemStore; sync: () => Promise<boolean> }> {
+  let api: GoogleCalendarApi | null = null;
+  try {
+    api = (await deps.calendar?.open(userId)) ?? null;
+  } catch (err) {
+    console.error("[dilo] google calendar unavailable:", err);
+  }
+  if (!api) return { store: memory, sync: async () => false };
+  const store = new CalendarSyncedStore(memory, api, () => todayIso(now(), deps.timezone), undefined, now);
+  return {
+    store,
+    sync: async () => {
+      await store.sync();
+      return true;
+    },
+  };
+}
+
+/** Writes everything DILO remembers with a date to the calendar, e.g. right after connecting it. */
+export async function syncCalendar(userId: string, deps: ChatDeps): Promise<boolean> {
+  const now = deps.now ?? (() => new Date());
+  const memory = new KeyValueItemStore(deps.kv, `dilo:wa:${userId}:memory`, now);
+  return (await withCalendar(userId, deps, memory, now)).sync();
+}
+
+async function calendarReply(userId: string, deps: ChatDeps, memory: ItemStore, now: () => Date): Promise<string> {
+  if (!deps.calendar) return "Il collegamento con Google Calendar non è ancora attivo.";
+  const { sync } = await withCalendar(userId, deps, memory, now);
+  if (await sync()) return "Il tuo Google Calendar è già collegato ✅ Tutto quello che ha una data lo scrivo lì.";
+  const link = await deps.calendar.connectLink(userId);
+  return `Tocca qui per collegare il tuo Google Calendar (il link vale un'ora):\n${link}\n\nDa quel momento tutto quello che ha una data lo scrivo anche lì.`;
 }
 
 /** The pending item, if DILO's last question is still open and recent. */

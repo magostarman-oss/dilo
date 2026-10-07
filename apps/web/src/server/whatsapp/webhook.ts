@@ -1,6 +1,6 @@
 import type { EngineProvider } from "../handlers";
 import type { WhatsAppApi } from "./cloud-api";
-import { chat } from "./conversation";
+import { chat, type ChatCalendar } from "./conversation";
 import type { ServerKv } from "./kv";
 import type { Transcriber } from "./transcribe";
 
@@ -46,6 +46,7 @@ export interface WebhookDeps {
   timezone: string;
   /** Phone numbers allowed to use DILO (international format, digits only), or "all". */
   allowed: string[] | "all";
+  calendar?: ChatCalendar | null;
   now?: () => Date;
 }
 
@@ -86,7 +87,7 @@ export async function processMessage(message: IncomingMessage, deps: WebhookDeps
 
   let answer: string;
   try {
-    answer = await chat(from, text, { getEngine: deps.getEngine, kv: deps.kv, timezone: deps.timezone, now: deps.now });
+    answer = await chat(from, text, { getEngine: deps.getEngine, kv: deps.kv, timezone: deps.timezone, calendar: deps.calendar, now: deps.now });
   } catch (err) {
     console.error("[dilo] whatsapp chat failed:", err);
     answer = FAILED;

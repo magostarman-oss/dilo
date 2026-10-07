@@ -2,7 +2,9 @@ import { createHmac } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { DiloEngine, type Extraction, type ExtractionModel, type WireItem } from "@dilo/nlu";
 import { validSignature, type WhatsAppApi } from "../src/server/whatsapp/cloud-api";
-import { chat } from "../src/server/whatsapp/conversation";
+import { GoogleCalendarApi } from "@dilo/actions";
+import { chat, syncCalendar, type ChatCalendar } from "../src/server/whatsapp/conversation";
+import { authorizeUrl, connectLink } from "../src/server/whatsapp/google";
 import { MemoryKv } from "../src/server/whatsapp/kv";
 import { incomingMessages, parseAllowed, processMessage, verifyWebhook, type IncomingMessage } from "../src/server/whatsapp/webhook";
 
@@ -172,5 +174,79 @@ describe("WhatsApp webhook", () => {
     expect(parseAllowed("+39 333 123 4567, 39347000")).toEqual(["393331234567", "39347000"]);
     expect(parseAllowed("*")).toBe("all");
     expect(parseAllowed(undefined)).toEqual([]);
+  });
+});
+
+describe("WhatsApp and Google Calendar", () => {
+  /** A calendar that records what DILO writes, through the real API client. */
+  const fakeCalendar = () => {
+    const events = new Map<string, { summary?: string }>();
+    let next = 1;
+    const api = new GoogleCalendarApi(
+      () => "token",
+      async (url, init) => {
+        const id = decodeURIComponent(url.split("/events")[1]?.replace(/^\//, "") ?? "");
+        if (init.method === "POST") {
+          const eid = `ev${next++}`;
+          events.set(eid, JSON.parse(init.body!));
+          return { ok: true, status: 200, json: async () => ({ id: eid }) };
+        }
+        if (init.method === "DELETE") events.delete(id);
+        if (init.method === "PUT") events.set(id, JSON.parse(init.body!));
+        return { ok: true, status: 200, json: async () => ({ id }) };
+      },
+    );
+    return { api, events };
+  };
+  const calendarDeps = (connected: () => GoogleCalendarApi | null): ChatCalendar => ({
+    open: async () => connected(),
+    connectLink: async (user) => `https://dilo.test/api/google/connect?s=${user}`,
+  });
+
+  it("writes what DILO remembers to the connected calendar, and takes it out on annulla", async () => {
+    const { api, events } = fakeCalendar();
+    const { getEngine } = scripted({ reply: null, cancel: [], items: [wire({ type: "event", title: "Cena con Giulia", date: "d+1", time: "20:30" })] });
+    const d = { ...deps(getEngine), calendar: calendarDeps(() => api) };
+    const reply = await chat("39333", "domani alle 20:30 cena con Giulia", d);
+    expect(reply).not.toContain("calendario");
+    expect([...events.values()].map((e) => e.summary)).toEqual(["Cena con Giulia"]);
+    await chat("39333", "annulla", d);
+    expect(events.size).toBe(0);
+  });
+
+  it("suggests connecting the calendar once, and sends the link on «calendario»", async () => {
+    const { getEngine } = scripted(
+      { reply: null, cancel: [], items: [wire({ type: "task", title: "Pagare F24", date: "d+1" })] },
+      { reply: null, cancel: [], items: [wire({ type: "task", title: "Comprare il pane", date: "d+1" })] },
+    );
+    const d = { ...deps(getEngine), calendar: calendarDeps(() => null) };
+    expect(await chat("39333", "domani pago l'F24", d)).toContain("Scrivi *calendario*");
+    expect(await chat("39333", "domani compro il pane", d)).not.toContain("calendario");
+    const link = await chat("39333", "Collega Google Calendar", d);
+    expect(link).toContain("https://dilo.test/api/google/connect?s=39333");
+  });
+
+  it("writes what was saved before connecting, once connected", async () => {
+    const { api, events } = fakeCalendar();
+    let connected: GoogleCalendarApi | null = null;
+    const { getEngine } = scripted({ reply: null, cancel: [], items: [wire({ type: "reminder", title: "Chiamare Luca", date: "d+1", time: "10:00" })] });
+    const d = { ...deps(getEngine), calendar: calendarDeps(() => connected) };
+    await chat("39333", "domani alle 10 ricordami di chiamare Luca", d);
+    expect(events.size).toBe(0);
+    connected = api;
+    expect(await syncCalendar("39333", d)).toBe(true);
+    expect([...events.values()].map((e) => e.summary)).toEqual(["Chiamare Luca"]);
+    expect(await chat("39333", "calendario", d)).toContain("già collegato");
+  });
+
+  it("signs connect links per number and rejects tampered or expired ones", async () => {
+    const g = { clientId: "cid", clientSecret: "cs", stateSecret: "secret", baseUrl: "https://dilo.test" };
+    const link = await connectLink(g, "39333", 1_000);
+    const state = new URL(link).searchParams.get("s")!;
+    const url = await authorizeUrl(g, state, 2_000);
+    expect(url).toContain("accounts.google.com");
+    expect(new URL(url!).searchParams.get("redirect_uri")).toBe("https://dilo.test/api/google/callback");
+    expect(await authorizeUrl(g, state.replace("39333", "39444"), 2_000)).toBeNull();
+    expect(await authorizeUrl(g, state, 1_000 + 2 * 60 * 60 * 1000)).toBeNull();
   });
 });

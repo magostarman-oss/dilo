@@ -54,6 +54,8 @@ Come funziona: Meta chiama `POST /api/whatsapp` (firmato con la chiave segreta d
 3. **Variabili su Vercel**: `WHATSAPP_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_APP_SECRET`, `WHATSAPP_VERIFY_TOKEN` (una parola a scelta), `WHATSAPP_ALLOWED_NUMBERS` (il tuo numero; senza, DILO non risponde a nessuno) e, per i vocali, `OPENAI_API_KEY`. Poi rifai il deploy.
 4. **Webhook**: in Meta, *WhatsApp* → *Configurazione* → URL `https://<tuo-dominio>/api/whatsapp`, token di verifica uguale a `WHATSAPP_VERIFY_TOKEN`; poi attiva il campo **messages**.
 
+**Google Calendar da WhatsApp**: scrivendo *calendario* DILO manda un link per collegare Google una volta; da lì scrive, aggiorna e toglie gli eventi da solo (il server conserva un refresh token per numero). Serve `GOOGLE_CLIENT_SECRET` dello stesso OAuth Client della web app, con l'URI di reindirizzamento `https://<tuo-dominio>/api/google/callback`. Con la schermata di consenso in modalità *Test* Google fa scadere il permesso dopo 7 giorni: pubblicala ("In produzione") per tenerlo.
+
 Costi: rispondere ai messaggi dell'utente è gratis su WhatsApp; i vocali costano circa 0,3 centesimi al minuto con `gpt-4o-mini-transcribe`. Per ora DILO risponde soltanto: i promemoria inviati da DILO all'ora giusta richiedono un modello di messaggio approvato da Meta e arriveranno in un secondo passo.
 
 ## Test

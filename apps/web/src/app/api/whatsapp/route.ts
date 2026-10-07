@@ -1,9 +1,7 @@
 import { after } from "next/server";
-import { getEngine } from "@/server/engine";
-import { cloudApiFromEnv, validSignature } from "@/server/whatsapp/cloud-api";
-import { kvFromEnv } from "@/server/whatsapp/kv";
-import { transcriberFromEnv } from "@/server/whatsapp/transcribe";
-import { incomingMessages, parseAllowed, processMessage, verifyWebhook } from "@/server/whatsapp/webhook";
+import { validSignature } from "@/server/whatsapp/cloud-api";
+import { whatsAppFromEnv } from "@/server/whatsapp/setup";
+import { incomingMessages, processMessage, verifyWebhook } from "@/server/whatsapp/webhook";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -17,8 +15,9 @@ export function GET(request: Request): Response {
 /** Incoming WhatsApp messages. Answered at once; DILO thinks and replies right after. */
 export async function POST(request: Request): Promise<Response> {
   const raw = await request.text();
-  const secret = process.env.WHATSAPP_APP_SECRET;
+  const secret = process.env.WHATSAPP_APP_SECRET?.trim();
   if (!secret || !(await validSignature(raw, request.headers.get("x-hub-signature-256"), secret))) {
+    console.error("[dilo] WhatsApp webhook rejected: missing or wrong signature (check WHATSAPP_APP_SECRET).");
     return new Response("forbidden", { status: 403 });
   }
 
@@ -29,19 +28,10 @@ export async function POST(request: Request): Promise<Response> {
     return new Response("bad request", { status: 400 });
   }
   const messages = incomingMessages(payload);
-  const kv = kvFromEnv();
-  const whatsapp = cloudApiFromEnv();
-  if (messages.length && (!kv || !whatsapp)) {
+  const deps = messages.length ? whatsAppFromEnv() : null;
+  if (messages.length && !deps) {
     console.error("[dilo] WhatsApp is not configured: set WHATSAPP_TOKEN, WHATSAPP_PHONE_NUMBER_ID and the Redis database.");
-  } else if (messages.length) {
-    const deps = {
-      getEngine,
-      kv: kv!,
-      whatsapp: whatsapp!,
-      transcribe: transcriberFromEnv(),
-      timezone: process.env.DILO_TIMEZONE || "Europe/Rome",
-      allowed: parseAllowed(process.env.WHATSAPP_ALLOWED_NUMBERS),
-    };
+  } else if (deps) {
     // Meta wants a quick 200; understanding a message can take a few seconds.
     after(async () => {
       for (const message of messages) {
